@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "im3-hyperfacets-wind"
+version = "0.1.0"
+description = "IM3/HyperFACETS extreme-wind processing for CADENCE"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scipy>=1.10",
+  "netCDF4>=1.6",
+  "h5py>=3.9",
+  "pyarrow>=14",
+  "matplotlib>=3.8",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

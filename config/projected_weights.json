@@ -1,0 +1,11 @@
+{
+  "projected_weights": {
+    "10": 0.30,
+    "25": 0.25,
+    "50": 0.20,
+    "100": 0.15,
+    "200": 0.07,
+    "500": 0.03
+  },
+  "note": "Illustrative starting weights only. These should be reviewed and user-configurable in the final CADENCE UI."
+}

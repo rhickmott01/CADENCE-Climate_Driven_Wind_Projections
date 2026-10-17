@@ -1,0 +1,15 @@
+{
+  "dataset": "IM3/HyperFACETS TGW",
+  "wind_variable": "WSPD",
+  "source_temporal_resolution": "3-hourly",
+  "annual_aggregation": "3-hourly WSPD -> daily maximum -> calendar-year maximum",
+  "historical_period": [1980, 2019],
+  "near_future_period": [2020, 2059],
+  "far_future_period": [2060, 2099],
+  "cadence_output_period": [2025, 2050],
+  "return_periods": [10, 25, 50, 100, 200, 500],
+  "bias_method": "historical CONUS404 return level / historical IM3 return level",
+  "annual_delta_method": "historical-to-near-future period-anchor interpolation",
+  "3sec_gust_conversion": "apply after climate delta in downstream CONUS404/CADENCE hazard step",
+  "future_bias_method_placeholder": "quantile_delta_mapping_or_extreme_quantile_method"
+}
