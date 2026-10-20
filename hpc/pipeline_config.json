@@ -1,0 +1,8 @@
+{
+  "source_collection": "9392aa20-799e-4630-acb6-7e6a4ed5b795",
+  "destination_collection": "1ad66c7c-4f60-11e8-900c-0a6d4e044368",
+  "work_root": "/work/rjh92/im3_tgw",
+  "checkpoint_root": "/work/rjh92/im3_tgw/checkpoints/files",
+  "state_db": "/hpc/home/rjh92/im3_pipeline_state/progress.sqlite3",
+  "poll_seconds": 30
+}
