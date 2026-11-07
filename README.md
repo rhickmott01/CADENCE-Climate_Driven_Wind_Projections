@@ -1,3 +1,10 @@
+> **Human-submitted DCC workflow:** Start with
+> [the audit and pilot guide](docs/DCC_MANUAL_EXECUTION.md) and
+> [DCC settings](config/dcc.production.json). This route audits overlapping
+> checkpoint timestamps and the real CONUS404 schema, writes reports even when
+> inputs are blocked, and prepares separately reviewed Slurm scripts. Production
+> retains compact native factors and a crosswalk instead of expanding all years.
+
 > **Production update:** The completed nine-scenario annual NPZ inputs use the
 > workflow in [docs/PIPELINE.md](docs/PIPELINE.md), configured by
 > [config/pipeline.json](config/pipeline.json). It provides validated GEV fits,

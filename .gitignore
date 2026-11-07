@@ -11,3 +11,5 @@ __pycache__/
 *.hdf5
 *.parquet
 *.tar.gz
+Data/
+logs/

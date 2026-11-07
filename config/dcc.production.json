@@ -1,0 +1,59 @@
+{
+  "annual_root": "/hpc/home/rjh92/CADENCE_Data/IM3/annual_maxima",
+  "results_root": "/hpc/home/rjh92/CADENCE_Data/IM3/manual_v1",
+  "scratch_root": "/work/rjh92/im3_tgw",
+  "conda_env": "/work/rjh92/conda_envs/cadence-wind-rebuilt",
+  "grid_file": "/hpc/home/rjh92/CADENCE_Data/IM3/metadata/im3_grid_historical.npz",
+  "conus_file": "/hpc/home/rjh92/CADENCE-Climate_Driven_Wind_Projections/Data/baseline/conus404_baseline.parquet",
+  "input_metadata": {
+    "units": "m s-1",
+    "source_variable": "hypot(U10,V10)",
+    "temporal_resolution": "3-hourly"
+  },
+  "grid_shape": [
+    299,
+    424
+  ],
+  "min_coverage": 0.95,
+  "min_years": 30,
+  "bootstrap": 200,
+  "seed": 1729,
+  "chunk_cells": 256,
+  "max_distance_km": 30.0,
+  "return_periods": [
+    10,
+    25,
+    50,
+    100,
+    200,
+    500
+  ],
+  "target_chunk_cells": 4096,
+  "scenario_grid_files": {},
+  "checkpoint_root": "/work/rjh92/im3_tgw/checkpoints/files",
+  "conus_raw_csv": "/hpc/home/rjh92/CADENCE-Climate_Driven_Wind_Projections/Data/raw/conus404/gev_return_periods.csv",
+  "conus_inspection": "/hpc/home/rjh92/CADENCE-Climate_Driven_Wind_Projections/Data/metadata/conus404/inspection.json",
+  "conus_raw_sha256": "d18d08af8487277b1912c2fd888d56a16705313e0abc13e7adc98d33b456fe58",
+  "conus_raw_bytes": 551189043,
+  "conus_units": "m s-1",
+  "conus_wind_definition": "3-second gust",
+  "conus_historical_period": null,
+  "conus_layout": "wide",
+  "conus_columns": {
+    "gust": "rp_{period}_3sec_gust",
+    "lower": "rp_{period}_3sec_gust_lower",
+    "upper": "rp_{period}_3sec_gust_upper"
+  },
+  "pilot_cells": 16,
+  "pilot_bootstrap": 25,
+  "coverage_sidecars": {},
+  "grid_reviews": {},
+  "overlap_policy_review": null,
+  "source_samples": {
+    "historical": [
+      "/work/rjh92/im3_tgw/raw/tgw_wrf_historical_three_hourly_1980-01-01_00_00_00.nc",
+      "/work/rjh92/im3_tgw/raw/tgw_wrf_historical_three_hourly_1980-01-08_00_00_00.nc"
+    ]
+  },
+  "conus_upstream_quality_review": null
+}

@@ -50,10 +50,14 @@ def annual_frames(near, far, scenario, meta):
         if year > ANCHORS[1]:
             flags |= far['flags']
         flags[~np.isfinite(factor) | (factor <= 0)] |= 256
-        yield pd.DataFrame(dict(base, year=year, change_factor=factor.ravel(),
+        from .baseline import POINT_UNUSABLE
+        bflags = near.get('baseline_quality_flags', np.zeros_like(flags))
+        future = near['baseline']*factor
+        future[((bflags & POINT_UNUSABLE) != 0) | ~np.isfinite(future) | (future <= 0)] = np.nan
+        yield pd.DataFrame(dict(base, baseline_quality_flags=bflags.ravel(), year=year, change_factor=factor.ravel(),
                                 factor_lower=lo.ravel(), factor_upper=hi.ravel(), flags=flags.ravel(),
                                 historical_wind=near['baseline'].ravel(),
-                                future_wind=(near['baseline']*factor).ravel(), units=meta['units'],
+                                future_wind=future.ravel(), units=meta['units'],
                                 wind_definition=meta['wind_definition']))
 
 

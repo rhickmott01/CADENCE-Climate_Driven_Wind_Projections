@@ -34,7 +34,7 @@ def geographic_map(source_lat, source_lon, target_lat, target_lon, max_distance_
                 inside=distance[:, 0] <= max_distance_km)
 
 
-def transfer(factors, mapping, baseline):
+def transfer(factors, mapping, baseline, baseline_quality_flags=None):
     """Nearest-neighbor primary, 4-neighbor IDW sensitivity; no NaN renormalizing."""
     idx = mapping['source_index']
     nearest = idx[:, 0]
@@ -55,7 +55,11 @@ def transfer(factors, mapping, baseline):
     baseline = np.asarray(baseline)
     if baseline.shape != factor.shape:
         raise ValueError('Baseline must have shape (target cell, return period)')
-    bad = ~np.isfinite(baseline) | (baseline <= 0)
+    from .baseline import POINT_UNUSABLE
+    bflags = np.zeros(baseline.shape, dtype=np.uint16) if baseline_quality_flags is None else np.asarray(baseline_quality_flags, dtype=np.uint16)
+    if bflags.shape != baseline.shape:
+        raise ValueError('Baseline quality flag shape mismatch')
+    bad = ~np.isfinite(baseline) | (baseline <= 0) | ((bflags & POINT_UNUSABLE) != 0)
     flags[bad] |= BASELINE_INVALID
     future = baseline * factor
     future[bad] = np.nan
@@ -68,13 +72,17 @@ def transfer(factors, mapping, baseline):
     factor_upper[outside] = np.nan
     return dict(factor=factor, lower=factor_lower,
                 upper=factor_upper, flags=flags,
-                baseline=baseline, future_wind=future, future_lower=lower, future_upper=upper,
+                baseline=baseline, baseline_quality_flags=bflags, future_wind_raw=baseline*factor, future_wind=future, future_lower=lower, future_upper=upper,
                 idw_factor=idw, idw_flags=idw_flags, mapping_sensitivity=idw-factor,
                 source_cell_id=factors['cell_id'][nearest], distance_km=mapping['distance_km'][:, 0])
 
 
-def load_conus(path, periods):
+def load_conus(path, periods, cfg=None):
     from .pipeline_inputs import coordinates
+    from pathlib import Path
+    if Path(path).suffix.lower() in ('.parquet', '.csv'):
+        from .baseline import inspect_table
+        return inspect_table(path, dict(cfg or {}, return_periods=list(periods)))[0]
     with np.load(path, allow_pickle=False) as d:
         shape = d['latitude'].shape
         if len(shape) != 2:

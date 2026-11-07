@@ -90,7 +90,7 @@ def downscale_scenario(cfg, scenario, chunk_index=None):
     if scenario == 'historical':
         return
     factors, inputs = load_factors(cfg, scenario)
-    conus = load_conus(cfg['conus_file'], cfg['return_periods'])
+    conus = load_conus(cfg['conus_file'], cfg['return_periods'], cfg)
     shape = conus['latitude'].shape
     chunk = cfg.get('target_chunk_cells', 4096)
     for index, start in enumerate(range(0, conus['latitude'].size, chunk)):
@@ -107,7 +107,8 @@ def downscale_scenario(cfg, scenario, chunk_index=None):
         lat = conus['latitude'].ravel()[start:stop]
         lon = conus['longitude'].ravel()[start:stop]
         mapping = geographic_map(factors['latitude'], factors['longitude'], lat, lon, cfg['max_distance_km'])
-        result = transfer(factors, mapping, conus['baseline'][start:stop])
+        result = transfer(factors, mapping, conus['baseline'][start:stop],
+                          conus.get('baseline_quality_flags', np.zeros_like(conus['baseline'], dtype=np.uint16))[start:stop])
         outside = ~mapping['inside']
         result['lower'][outside] = np.nan
         result['upper'][outside] = np.nan
@@ -117,6 +118,8 @@ def downscale_scenario(cfg, scenario, chunk_index=None):
                       return_periods=factors['return_periods'])
         if shape[1] >= 65536:
             raise ValueError('CONUS longitude index exceeds CADENCE packed ID capacity')
+        for name, values in conus.get('source_quality_columns', {}).items():
+            result['source_quality_' + name] = values[start:stop]
         if 'baseline_lower' in conus:
             blo, bhi = conus['baseline_lower'][start:stop], conus['baseline_upper'][start:stop]
             valid_bounds = np.isfinite(blo) & np.isfinite(bhi) & (blo > 0) & (bhi >= blo)
@@ -133,7 +136,7 @@ def export_scenario(cfg, scenario, chunk_index=None, compatibility_rp=None, allo
     if not scenario.endswith('_near'):
         return
     forcing = scenario.removesuffix('_near')
-    conus = load_conus(cfg['conus_file'], cfg['return_periods'])
+    conus = load_conus(cfg['conus_file'], cfg['return_periods'], cfg)
     count = (conus['latitude'].size + cfg.get('target_chunk_cells', 4096)-1)//cfg.get('target_chunk_cells', 4096)
     for index in range(count):
         if chunk_index is not None and index != chunk_index:
@@ -181,8 +184,8 @@ def main():
         if args.stage == 'validate':
             p.error('validate does not use --chunk')
         if args.stage in ('downscale', 'export'):
-            with np.load(cfg['conus_file'], allow_pickle=False) as d:
-                total = d['latitude'].size
+            from .downscale import load_conus
+            total = load_conus(cfg['conus_file'], cfg['return_periods'], cfg)['latitude'].size
             chunk_size = cfg.get('target_chunk_cells', 4096)
         else:
             total, chunk_size = int(np.prod(cfg['grid_shape'])), cfg['chunk_cells']

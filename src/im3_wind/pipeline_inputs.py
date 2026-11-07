@@ -70,8 +70,27 @@ def validate_annual(path, scenario, cfg):
         if counts.dtype.kind not in 'iu' or totals.dtype.kind not in 'iu':
             raise ValueError('Observation counts must be integers')
         expected = np.array([(366 if calendar.isleap(int(y)) else 365) * 8 for y in years])
-        if (totals <= 0).any() or (totals > expected).any():
-            raise ValueError('Invalid total observations; possible duplicate checkpoints')
+        coverage_path = cfg.get('coverage_sidecars', {}).get(scenario)
+        coverage_report = {'method': 'raw_contribution_counts', 'duplicate_equality_verified': False}
+        duplicates = np.zeros(40, dtype=np.int64)
+        if coverage_path:
+            from .products import read_product
+            evidence, provenance = read_product(coverage_path)
+            if provenance.get('evidence_type') != 'checkpoint_timestamp_union_v1' or provenance.get('annual_sha256') != fingerprint(path):
+                raise ValueError('Coverage evidence is stale or unsupported')
+            if not np.array_equal(evidence['years'], years) or not np.array_equal(evidence['timestep_contributions'], totals):
+                raise ValueError('Coverage evidence years/counts mismatch')
+            unique, duplicates = evidence['unique_timestep_counts'], evidence['duplicate_contributions']
+            if unique.shape != (40,) or duplicates.shape != (40,) or unique.dtype.kind not in 'iu' or duplicates.dtype.kind not in 'iu':
+                raise ValueError('Invalid coverage evidence shape/type')
+            if (duplicates < 0).any() or (unique <= 0).any() or (unique > expected).any() or not np.array_equal(unique+duplicates, totals):
+                raise ValueError('Invalid unique-observation coverage evidence')
+            coverage_report.update(method='conservative_unique_finite_lower_bound',
+                                   sidecar_sha256=fingerprint(coverage_path),
+                                   unique_timestep_counts=unique.tolist(),
+                                   duplicate_contributions=duplicates.tolist())
+        if (totals <= 0).any() or (not coverage_path and (totals > expected).any()):
+            raise ValueError('Invalid total observations; possible duplicate checkpoints; require audited coverage sidecar')
         if (counts < 0).any() or (counts > totals[:, None, None]).any():
             raise ValueError('Invalid per-cell observation counts')
         finite = np.isfinite(maxima)
@@ -83,14 +102,15 @@ def validate_annual(path, scenario, cfg):
         for key in ('units', 'source_variable', 'temporal_resolution'):
             if key in d:
                 metadata[key] = str(d[key].item())
-        if metadata != {'units': 'm s-1', 'source_variable': 'WSPD', 'temporal_resolution': '3-hourly'}:
-            raise ValueError('Require verified WSPD m s-1, 3-hourly metadata')
-        eligible = finite & (counts / expected[:, None, None] >= cfg['min_coverage'])
+        if metadata.get('units') != 'm s-1' or metadata.get('temporal_resolution') != '3-hourly' or metadata.get('source_variable') not in ('WSPD', 'hypot(U10,V10)'):
+            raise ValueError('Require verified wind metadata: WSPD or hypot(U10,V10), m s-1, 3-hourly')
+        finite_lower = np.maximum(counts.astype(np.int64) - duplicates[:, None, None], 0)
+        eligible = finite & (finite_lower / expected[:, None, None] >= cfg['min_coverage'])
         cube = np.where(eligible, maxima, np.nan)
     report = dict(scenario=scenario, shape=list(shape), years=[start, end],
                   source_sha256=fingerprint(path), metadata=metadata,
                   metadata_source='NPZ fields with configured legacy fallback',
                   missing_values=int((~finite).sum()), excluded_low_coverage=int((finite & ~eligible).sum()),
                   eligible_years_min=int(eligible.sum(axis=0).min()),
-                  timestep_contributions=totals.tolist())
+                  timestep_contributions=totals.tolist(), coverage=coverage_report)
     return cube, report

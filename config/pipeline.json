@@ -7,7 +7,7 @@
   "conus_file": null,
   "input_metadata": {
     "units": "m s-1",
-    "source_variable": "WSPD",
+    "source_variable": "hypot(U10,V10)",
     "temporal_resolution": "3-hourly"
   },
   "grid_shape": [

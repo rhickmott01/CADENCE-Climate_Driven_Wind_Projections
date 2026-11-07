@@ -1,3 +1,10 @@
+> For the current real-input investigation and human-submitted Slurm workflow,
+> use [DCC_MANUAL_EXECUTION.md](DCC_MANUAL_EXECUTION.md). The guide below also
+> describes the earlier materialized-export route. Production settings now use
+> `hypot(U10,V10)`; legacy WSPD remains an explicitly supported input type.
+> Inflated contribution counts require audited timestamp-union sidecars rather
+> than weakening the calendar validation.
+
 # NPZ production workflow
 
 This workflow consumes completed annual NPZ maxima; it never reprocesses raw
