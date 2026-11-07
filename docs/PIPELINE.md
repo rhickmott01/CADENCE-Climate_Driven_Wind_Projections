@@ -88,3 +88,50 @@ it does not establish their equivalence. Validate this with observations or
 appropriate gust simulations. Conditional future bounds multiply factor bounds
 by a fixed baseline; optional combined bounds multiply both marginal envelopes
 and are not calibrated joint intervals. No baseline uncertainty is invented.
+
+## Annualization and CADENCE integration
+
+Scientific exports contain every cell/RP/year for 2026-2060 for each of four
+forcings. Log-linear interpolation joins multiplier 1 at 1999.5, near factor at
+2039.5, and far factor at 2079.5. This is an assumed smooth scenario transition,
+not an inferred annual trend or prediction of annual maximum wind. Midpoints
+summarize climate slices, not measured annual conditions. Factors stay positive;
+no extrapolation is needed. Bounds undergo the same transition and represent
+interpolated marginal envelopes, not annual confidence intervals. Near flags
+propagate throughout; far flags also propagate after 2039.5. Missing values
+remain rows with NaNs/flags.
+
+Partitioned Parquet under `annual/SCENARIO/` includes wind_grid_id, lat_idx,
+lon_idx, latitude/longitude, source_cell_id, scenario, year, return_period,
+change_factor, factor_lower/upper, flags, historical_wind, future_wind, units,
+wind_definition, transition_method and provenance. Packed IDs match main
+CADENCE: `lat_idx * 65536 + lon_idx`.
+
+The `export --compatibility-rp T` adapter explicitly selects one forcing and
+return period, generating `compatibility/SCENARIO/rp_T/` with lat_idx, lon_idx
+and scale_2025 through scale_2060. 2025 is an additional compatibility-only
+transition year. Flags are rejected by default; `--allow-flags MASK` requires an
+explicit reviewed bitmask (2 accepts extrapolation alone). NaN/invalid factors
+always fail compatibility publication, even if their flags are allowed.
+
+The main CADENCE consumer inspected here applies a single multiplier to all six
+return periods and hardcodes source years 2025-2050, extrapolating thereafter.
+It can read a chosen compatibility partition for existing 2025-2050 runs.
+Full scientific integration requires accepting scenario and return-period keys,
+using the exported factors through 2060, and updating its beyond-range policy.
+Do not replace a return-period-dependent product with an unreviewed average.
+The separate Climate_Delta_Creation interface remains unverified; the long table
+provides a documented adapter boundary, not a claim of drop-in compatibility.
+
+Example downstream consumption (no changes made to the adjacent repository):
+
+```python
+import pandas as pd
+rows = pd.read_parquet('results_v2/annual/rcp45cooler')
+selected = rows.query('year == 2050 and return_period == 100')
+# Preserve quality flags and join selected cells, never silently drop missing keys.
+assets = pd.DataFrame({'wind_grid_id': [65538]})
+lookup = assets.merge(selected, on='wind_grid_id', how='left', validate='many_to_one')
+assert lookup.change_factor.notna().all()
+# future_wind already equals the high-resolution historical baseline * factor.
+```

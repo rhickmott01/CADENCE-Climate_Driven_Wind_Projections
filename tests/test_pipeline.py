@@ -109,3 +109,35 @@ def test_geographic_downscaling_and_sensitivity():
     f['factor'][:] = 1.1
     r = transfer(f, mapping, np.full((3, 2), 50.))
     np.testing.assert_allclose(r['mapping_sensitivity'][:2], 0, atol=1e-12)
+
+from im3_wind.exports import annual_transition, annual_frames, compatibility_frame, write_frames, parquet_resume
+
+
+def test_annual_transition_and_export(tmp_path):
+    n, f = np.array([1.2]), np.array([1.5])
+    np.testing.assert_allclose(annual_transition(n, f, 2039.5), n)
+    np.testing.assert_allclose(annual_transition(n, f, 2079.5), f)
+    assert 1.2 < annual_transition(n, f, 2060)[0] < 1.5
+    assert np.isnan(annual_transition([-1.], [1.], 2026)[0])
+    near = dict(factor=np.array([[1.2, 1.3]]), lower=np.array([[1.1, 1.2]]),
+                upper=np.array([[1.3, 1.4]]), baseline=np.array([[50., 60.]]),
+                flags=np.zeros((1, 2), dtype=np.uint16), return_periods=np.array([10, 100]),
+                wind_grid_id=np.array([65538]), lat_idx=np.array([1]), lon_idx=np.array([2]),
+                latitude=np.array([35.]), longitude=np.array([-80.]), source_cell_id=np.array([0]))
+    far = dict(near, factor=near['factor']*1.2)
+    meta = dict(units='mph', wind_definition='3-second gust')
+    frames = list(annual_frames(near, far, 'rcp45cooler', meta))
+    assert len(frames) == 35
+    assert frames[0].year.iloc[0] == 2026 and frames[-1].year.iloc[0] == 2060
+    assert len(frames[0]) == 2
+    path = tmp_path / 'export.parquet'
+    write_frames(path, iter(frames), meta)
+    assert parquet_resume(path, meta)
+    with pytest.raises(FileExistsError):
+        write_frames(path, iter(frames), meta)
+    compat = compatibility_frame(near, far, 100)
+    assert 'scale_2025' in compat and 'scale_2060' in compat
+    far['flags'] = np.full((1, 2), EXTRAPOLATED, dtype=np.uint16)
+    with pytest.raises(ValueError, match='Unaccepted'):
+        compatibility_frame(near, far, 100)
+    assert len(compatibility_frame(near, far, 100, allow_flags=EXTRAPOLATED)) == 1

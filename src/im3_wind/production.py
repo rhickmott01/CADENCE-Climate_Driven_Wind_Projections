@@ -126,12 +126,47 @@ def downscale_scenario(cfg, scenario, chunk_index=None):
         logging.info('Downscaled %s; outside distance threshold=%s', out, outside.sum())
 
 
+def export_scenario(cfg, scenario, chunk_index=None, compatibility_rp=None, allow_flags=0):
+    from .exports import annual_frames, compatibility_frame, write_frames, parquet_resume
+    from .downscale import load_conus
+    if not scenario.endswith('_near'):
+        return
+    forcing = scenario.removesuffix('_near')
+    conus = load_conus(cfg['conus_file'], cfg['return_periods'])
+    count = (conus['latitude'].size + cfg.get('target_chunk_cells', 4096)-1)//cfg.get('target_chunk_cells', 4096)
+    for index in range(count):
+        if chunk_index is not None and index != chunk_index:
+            continue
+        paths = [Path(cfg['results_root']) / 'downscaled' / f'{forcing}_{sl}' / f'{index:05d}.npz' for sl in ('near', 'far')]
+        near, nm = read_product(paths[0])
+        far, fm = read_product(paths[1])
+        for m in (nm, fm):
+            if m['settings_sha256'] != cfg['settings_sha256']:
+                raise ValueError('Downscale settings mismatch')
+        meta = provenance(cfg, 'export', scenario=forcing, inputs={str(p):fingerprint(p) for p in paths},
+                          units=conus['units'], wind_definition=conus['wind_definition'],
+                          transition='log-linear midpoint anchors 1999.5,2039.5,2079.5',
+                          uncertainty='interpolated marginal envelopes; not annual confidence intervals')
+        if compatibility_rp is None:
+            out = Path(cfg['results_root']) / 'annual' / forcing / f'{index:05d}.parquet'
+            frames = annual_frames(near, far, forcing, meta)
+        else:
+            meta.update(return_period=compatibility_rp, allow_flags=allow_flags, compatibility_extra_year=2025)
+            out = Path(cfg['results_root']) / 'compatibility' / forcing / f'rp_{compatibility_rp}' / f'{index:05d}.parquet'
+            frames = (compatibility_frame(near, far, compatibility_rp, allow_flags),)
+        if not parquet_resume(out, meta):
+            write_frames(out, frames, meta)
+        logging.info('Exported %s', out)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('stage', choices=['validate', 'fit', 'factor', 'downscale'])
+    p.add_argument('stage', choices=['validate', 'fit', 'factor', 'downscale', 'export'])
     p.add_argument('--config', default='config/pipeline.json')
     p.add_argument('--scenario', choices=list(SCENARIO_YEARS))
     p.add_argument('--chunk', type=int)
+    p.add_argument('--compatibility-rp', type=int)
+    p.add_argument('--allow-flags', type=int, default=0)
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     cfg = settings(args.config)
@@ -148,8 +183,10 @@ def main():
             fit_scenario(cfg, scenario, args.chunk)
         elif args.stage == 'factor':
             factor_scenario(cfg, scenario, args.chunk)
-        else:
+        elif args.stage == 'downscale':
             downscale_scenario(cfg, scenario, args.chunk)
+        else:
+            export_scenario(cfg, scenario, args.chunk, args.compatibility_rp, args.allow_flags)
 
 
 if __name__ == '__main__':
