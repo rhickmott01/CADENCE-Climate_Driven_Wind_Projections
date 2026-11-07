@@ -1,0 +1,17 @@
+{
+  "annual_root": "/hpc/home/rjh92/CADENCE_Data/IM3/annual_maxima",
+  "results_root": "/hpc/home/rjh92/CADENCE_Data/IM3/results_v2",
+  "scratch_root": "/work/rjh92/im3_tgw",
+  "conda_env": "/work/rjh92/conda_envs/cadence-wind-rebuilt",
+  "grid_file": null,
+  "conus_file": null,
+  "input_metadata": {"units": "m s-1", "source_variable": "WSPD", "temporal_resolution": "3-hourly"},
+  "grid_shape": [299, 424],
+  "min_coverage": 0.95,
+  "min_years": 30,
+  "bootstrap": 200,
+  "seed": 1729,
+  "chunk_cells": 256,
+  "max_distance_km": 30.0,
+  "return_periods": [10, 25, 50, 100, 200, 500]
+}
