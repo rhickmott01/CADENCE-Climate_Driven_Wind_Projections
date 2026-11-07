@@ -88,3 +88,24 @@ def test_factors_preserve_bad_cells_and_coordinates():
     f['longitude'][0] += .1
     with pytest.raises(ValueError, match='mismatch'):
         climate_factors(h, f)
+
+from im3_wind.downscale import geographic_map, transfer, OUTSIDE
+
+
+def test_geographic_downscaling_and_sensitivity():
+    f = climate_factors(hazard([20, 30]), hazard([24, 36]))
+    # Second source has a larger signal; test exact and midpoint behavior.
+    f = {k: (np.concatenate([v, v], axis=0) if k != 'return_periods' else v) for k, v in f.items()}
+    f['factor'][1] = 1.4
+    mapping = geographic_map(np.array([35., 35.]), np.array([-80., -79.8]),
+                             np.array([35., 35., 0.]), np.array([-80., -79.9, 0.]), 30)
+    r = transfer(f, mapping, np.full((3, 2), 50.))
+    np.testing.assert_allclose(r['future_wind'][0], 60)
+    np.testing.assert_allclose(r['idw_factor'][0], 1.2)
+    np.testing.assert_allclose(r['idw_factor'][1], 1.3, atol=1e-6)
+    assert np.isnan(r['future_wind'][2]).all()
+    assert np.all(r['flags'][2] & OUTSIDE)
+    # A constant field must survive either spatial mapping.
+    f['factor'][:] = 1.1
+    r = transfer(f, mapping, np.full((3, 2), 50.))
+    np.testing.assert_allclose(r['mapping_sensitivity'][:2], 0, atol=1e-12)

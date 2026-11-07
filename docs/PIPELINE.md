@@ -56,3 +56,35 @@ Historical/future dependence and climate-model uncertainty are not estimated.
 Arrays use `(cell, return_period)`; coordinates and cell IDs are 1-D native IM3
 row-major IDs. NPZ products contain JSON provenance with source hashes, settings
 hash, code commit and NumPy/SciPy versions. No pickle loading is needed.
+
+## CONUS404 geographic transfer
+
+Inspected the existing `scripts/06*`, `scripts/07*`, and the adjacent main CADENCE
+`src/cadence/reference_data/climate_delta.py` and README. The former expect
+`spduv10max`, `lat_2d`, `lon_2d`, `years` in historical HDF5; the latter uses
+`lat_idx`, `lon_idx` and wide `scale_YEAR` Parquet. No standalone CONUS404 or
+Climate_Delta_Creation repository was available locally or among repositories
+exposed by the authenticated GitHub account. The real grid is unavailable.
+
+The configurable `conus_file` interface is NPZ with 2-D latitude/longitude,
+return_periods, return_levels shaped `(flattened cell, return period)`, scalar
+units (`m s-1` or `mph`), and explicit scalar wind_definition (e.g. `3-second gust`).
+Optional baseline_lower/baseline_upper use the same shape. The caller must adapt
+its real baseline schema, verify averaging time/units, grid index orientation,
+and original uncertainty definition. Never infer geography from row indices.
+
+Primary mapping uses nearest native IM3 center on the sphere, with a configurable
+30-km maximum distance; out-of-range cells remain present with NaNs and bit 512.
+This is a distance-limited domain test, not a polygon land mask. Supply masked
+CONUS baseline values where needed (bit 1024 invalid baseline). Secondary inverse
+squared distance mapping over up to four neighbors reports method sensitivity,
+not a probabilistic interval. Missing contributing factors are not renormalized
+away. IDW flags retain all contributing source flags.
+
+`future_wind(T) = baseline(T) * factor(T)` preserves the original high-resolution
+baseline. Transferring a dimensionless three-hourly climate signal to gusts is
+an explicit assumption of invariant relative change across averaging times;
+it does not establish their equivalence. Validate this with observations or
+appropriate gust simulations. Conditional future bounds multiply factor bounds
+by a fixed baseline; optional combined bounds multiply both marginal envelopes
+and are not calibrated joint intervals. No baseline uncertainty is invented.
