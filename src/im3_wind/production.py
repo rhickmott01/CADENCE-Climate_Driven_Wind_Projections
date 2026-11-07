@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import numpy as np
 import scipy
-from .pipeline_inputs import SCENARIO_YEARS, settings, validate_annual, coordinates, fingerprint
+from .pipeline_inputs import SCENARIO_YEARS, settings, validate_annual, coordinates, fingerprint, grid_path
 from .products import save_product, read_product, resume_matches
 from .extremes import fit_block
 from .factors import climate_factors
@@ -22,7 +22,7 @@ def provenance(cfg, stage, **extra):
 def fit_scenario(cfg, scenario, chunk_index=None):
     source = Path(cfg['annual_root']) / f'{scenario}.npz'
     cube, report = validate_annual(source, scenario, cfg)
-    lat, lon = coordinates(cfg['grid_file'], cfg['grid_shape'])
+    lat, lon = coordinates(grid_path(cfg, scenario), cfg['grid_shape'])
     flat = cube.reshape(40, -1)
     root = Path(cfg['results_root'])
     for index, start in enumerate(range(0, flat.shape[1], cfg['chunk_cells'])):
@@ -30,7 +30,7 @@ def fit_scenario(cfg, scenario, chunk_index=None):
             continue
         stop = min(start + cfg['chunk_cells'], flat.shape[1])
         meta = provenance(cfg, 'fit', scenario=scenario, source=report,
-                          grid_sha256=fingerprint(cfg['grid_file']), start=start, stop=stop)
+                          grid_sha256=fingerprint(grid_path(cfg, scenario)), start=start, stop=stop)
         out = root / 'fits' / scenario / f'{index:05d}.npz'
         if resume_matches(out, meta):
             logging.info('Resume %s', out)
@@ -59,8 +59,6 @@ def factor_scenario(cfg, scenario, chunk_index=None):
                 raise ValueError('Fit provenance/config mismatch')
             if not np.array_equal(data['cell_id'], np.arange(start, min(start+cfg['chunk_cells'], n))):
                 raise ValueError('Fit chunk cell coverage mismatch')
-        if hp['grid_sha256'] != fp['grid_sha256']:
-            raise ValueError('Historical/future grid provenance mismatch')
         meta = provenance(cfg, 'factor', scenario=scenario,
                           inputs={str(p): fingerprint(p) for p in paths},
                           uncertainty='marginal percentile envelope, not calibrated ratio CI')
@@ -120,8 +118,11 @@ def downscale_scenario(cfg, scenario, chunk_index=None):
         if shape[1] >= 65536:
             raise ValueError('CONUS longitude index exceeds CADENCE packed ID capacity')
         if 'baseline_lower' in conus:
-            result['combined_lower'] = conus['baseline_lower'][start:stop]*result['lower']
-            result['combined_upper'] = conus['baseline_upper'][start:stop]*result['upper']
+            blo, bhi = conus['baseline_lower'][start:stop], conus['baseline_upper'][start:stop]
+            valid_bounds = np.isfinite(blo) & np.isfinite(bhi) & (blo > 0) & (bhi >= blo)
+            result['flags'][~valid_bounds] |= 2048
+            result['combined_lower'] = np.where(valid_bounds, blo*result['lower'], np.nan)
+            result['combined_upper'] = np.where(valid_bounds, bhi*result['upper'], np.nan)
         save_product(out, result, meta)
         logging.info('Downscaled %s; outside distance threshold=%s', out, outside.sum())
 
@@ -170,12 +171,29 @@ def main():
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     cfg = settings(args.config)
+    if not cfg.get('grid_file'):
+        p.error('Set grid_file to verified IM3 coordinates in the settings file')
+    if args.stage in ('downscale', 'export') and not cfg.get('conus_file'):
+        p.error('Set conus_file to the real CONUS baseline or a synthetic fixture')
+    if args.stage == 'export' and args.scenario and not args.scenario.endswith('_near'):
+        p.error('Export selects a forcing via its _near scenario and reads both slices')
+    if args.chunk is not None:
+        if args.stage == 'validate':
+            p.error('validate does not use --chunk')
+        if args.stage in ('downscale', 'export'):
+            with np.load(cfg['conus_file'], allow_pickle=False) as d:
+                total = d['latitude'].size
+            chunk_size = cfg.get('target_chunk_cells', 4096)
+        else:
+            total, chunk_size = int(np.prod(cfg['grid_shape'])), cfg['chunk_cells']
+        if not 0 <= args.chunk < (total+chunk_size-1)//chunk_size:
+            p.error('Chunk index is outside the configured grid')
     for scenario in ([args.scenario] if args.scenario else SCENARIO_YEARS):
         if args.stage == 'validate':
             _, report = validate_annual(Path(cfg['annual_root']) / f'{scenario}.npz', scenario, cfg)
-            coordinates(cfg['grid_file'], cfg['grid_shape'])
+            coordinates(grid_path(cfg, scenario), cfg['grid_shape'])
             out = Path(cfg['results_root']) / 'validation' / f'{scenario}.npz'
-            meta = provenance(cfg, 'validate', report=report, grid_sha256=fingerprint(cfg['grid_file']))
+            meta = provenance(cfg, 'validate', report=report, grid_sha256=fingerprint(grid_path(cfg, scenario)))
             if not resume_matches(out, meta):
                 save_product(out, {'report': np.array(json.dumps(report))}, meta)
             logging.info('%s', json.dumps(report))

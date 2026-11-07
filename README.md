@@ -1,3 +1,10 @@
+> **Production update:** The completed nine-scenario annual NPZ inputs use the
+> workflow in [docs/PIPELINE.md](docs/PIPELINE.md), configured by
+> [config/pipeline.json](config/pipeline.json). It provides validated GEV fits,
+> uncertainty/quality flags, geographic delta transfer, 2026-2060 exports and
+> restartable Slurm arrays. The numbered HDF5 workflow and 2025-2050 methods
+> below describe the earlier implementation and are retained for reference.
+
 # IM3 / HyperFACETS Extreme-Wind Processing for CADENCE
 
 This repository is the proposed processing pipeline for bringing the raw

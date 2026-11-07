@@ -63,8 +63,11 @@ def transfer(factors, mapping, baseline):
     upper = baseline * factors['upper'][nearest]
     lower[bad | outside[:, None]] = np.nan
     upper[bad | outside[:, None]] = np.nan
-    return dict(factor=factor, lower=factors['lower'][nearest].copy(),
-                upper=factors['upper'][nearest].copy(), flags=flags,
+    factor_lower, factor_upper = factors['lower'][nearest].copy(), factors['upper'][nearest].copy()
+    factor_lower[outside] = np.nan
+    factor_upper[outside] = np.nan
+    return dict(factor=factor, lower=factor_lower,
+                upper=factor_upper, flags=flags,
                 baseline=baseline, future_wind=future, future_lower=lower, future_upper=upper,
                 idw_factor=idw, idw_flags=idw_flags, mapping_sensitivity=idw-factor,
                 source_cell_id=factors['cell_id'][nearest], distance_km=mapping['distance_km'][:, 0])

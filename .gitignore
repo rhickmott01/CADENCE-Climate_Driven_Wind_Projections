@@ -3,3 +3,11 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .venv/
+# Scientific data and local production output belong outside Git.
+*.npz
+*.nc
+*.nc4
+*.h5
+*.hdf5
+*.parquet
+*.tar.gz

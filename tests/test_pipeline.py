@@ -141,3 +141,48 @@ def test_annual_transition_and_export(tmp_path):
     with pytest.raises(ValueError, match='Unaccepted'):
         compatibility_frame(near, far, 100)
     assert len(compatibility_frame(near, far, 100, allow_flags=EXTRAPOLATED)) == 1
+
+from im3_wind.products import save_product, resume_matches
+
+
+def test_exclusive_products_and_restart(tmp_path):
+    path = tmp_path / 'product.npz'
+    meta = {'settings': 'a'}
+    save_product(path, {'values': np.arange(3)}, meta)
+    assert resume_matches(path, meta)
+    with pytest.raises(FileExistsError):
+        save_product(path, {'values': np.arange(10)}, meta)
+    with pytest.raises(ValueError, match='Stale'):
+        resume_matches(path, {'settings': 'b'})
+
+
+def test_end_to_end(tmp_path):
+    import importlib.util
+    from pathlib import Path
+    from im3_wind.pipeline_inputs import settings, SCENARIO_YEARS
+    from im3_wind.production import fit_scenario, factor_scenario, downscale_scenario, export_scenario
+    spec = importlib.util.spec_from_file_location('synthetic', Path(__file__).parents[1]/'scripts/make_synthetic_pipeline.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cfg = settings(module.make_example(tmp_path, bootstrap=0))
+    for sc in SCENARIO_YEARS:
+        fit_scenario(cfg, sc)
+    for operation in (factor_scenario, downscale_scenario, export_scenario):
+        for sc in SCENARIO_YEARS:
+            operation(cfg, sc)
+    import pandas as pd
+    files = list((tmp_path/'results/annual').rglob('*.parquet'))
+    assert len(files) == 8
+    frame = pd.concat([pd.read_parquet(f) for f in files])
+    assert len(frame) == 4*4*35*6
+    assert frame.change_factor.notna().all()
+    assert set(frame.year) == set(range(2026, 2061))
+    assert not frame.duplicated(['scenario', 'wind_grid_id', 'year', 'return_period']).any()
+    np.testing.assert_allclose(frame.future_wind, frame.historical_wind*frame.change_factor)
+    times = {f: f.stat().st_mtime_ns for f in (tmp_path/'results').rglob('*') if f.is_file()}
+    for sc in SCENARIO_YEARS:
+        fit_scenario(cfg, sc)
+        factor_scenario(cfg, sc)
+        downscale_scenario(cfg, sc)
+        export_scenario(cfg, sc)
+    assert all(f.stat().st_mtime_ns == t for f, t in times.items())

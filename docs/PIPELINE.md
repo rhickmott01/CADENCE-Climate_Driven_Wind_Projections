@@ -135,3 +135,161 @@ lookup = assets.merge(selected, on='wind_grid_id', how='left', validate='many_to
 assert lookup.change_factor.notna().all()
 # future_wind already equals the high-resolution historical baseline * factor.
 ```
+
+## DCC setup and exact execution commands
+
+Run from the repository root. Confirm source units, observation calendar,
+coordinate identity, baseline wind definition, and grid orientation before a
+production submission. A shared grid_file asserts all nine inputs share that
+verified grid; optional scenario_grid_files maps each scenario to its own grid
+NPZ, allowing coordinate comparisons to reject mismatches. Never use synthetic
+coordinates for real inputs. Annual counts cannot prove timestamp uniqueness;
+retain upstream aggregation QA as evidence.
+
+```bash
+# On DCC, clone once or fast-forward the existing clean checkout.
+git clone --branch feature/im3-hpc-automation https://github.com/rhickmott01/CADENCE-Climate_Driven_Wind_Projections.git
+cd CADENCE-Climate_Driven_Wind_Projections
+# For an existing checkout instead: git pull --ff-only origin feature/im3-hpc-automation
+
+# Activate the rebuilt environment specified in the settings file.
+conda activate "$(python -c 'import json; print(json.load(open("config/pipeline.json"))["conda_env"])')"
+python -m pip install -e .
+python -m pip install pytest
+python -m pytest -q
+
+# Copy config/pipeline.json to a site-specific settings file outside the repository.
+# Set grid_file and conus_file, confirm metadata, and choose a fresh results_root.
+export WIND_CONFIG="$HOME/CADENCE_Data/IM3/pipeline.production.json"
+cp -n config/pipeline.json "$WIND_CONFIG"
+# Edit WIND_CONFIG before proceeding; its default coordinate paths are null.
+
+# Stage 1: nine read-only validations (reports + JSON in logs).
+python -m im3_wind.production validate --config "$WIND_CONFIG"
+# Stage 2: GEV fitting; run through Slurm arrays for the full grid.
+python -m im3_wind.production fit --config "$WIND_CONFIG"
+# Stage 3: eight future/historical factor grids.
+python -m im3_wind.production factor --config "$WIND_CONFIG"
+# Stage 4: eight near/far high-resolution transfers.
+python -m im3_wind.production downscale --config "$WIND_CONFIG"
+# Stage 5: four 2026-2060 scientific scenario exports.
+python -m im3_wind.production export --config "$WIND_CONFIG"
+```
+
+The commands above specify each stage exactly; full-grid fitting belongs on
+compute nodes. Add `--scenario rcp45cooler_near --chunk 0` to process a single
+chunk (export uses the `_near` selector to load both slices). `validate` takes
+no chunk. After reviewing quality flags, an optional compatibility export is:
+
+```bash
+python -m im3_wind.production export --config "$WIND_CONFIG" \
+  --scenario rcp45cooler_near --compatibility-rp 100 --allow-flags 2
+```
+
+This example accepts extrapolation alone; it will correctly fail if other
+quality problems exist. Review those problems rather than blindly allowing all
+flags. Compatibility export is optional and is not automatically submitted.
+
+Stage 6 provides the dependency-ordered Slurm execution instead of running the
+five processing commands on a login node:
+
+```bash
+# Preview commands (no jobs submitted).
+python hpc/submit_wind.py --config "$WIND_CONFIG" --max-parallel 8
+# Supply --partition and --account if required by your DCC allocation.
+python hpc/submit_wind.py --config "$WIND_CONFIG" --max-parallel 8 --submit
+```
+
+The submitter creates per-scenario arrays and afterok dependencies between
+stages. Fit chunks are 256 cells; target chunks default to 4096 cells. Each fit
+task reads one ~20-MB maxima cube plus counts (compressed NPZ cannot be memory
+mapped); only the chunk's fits/bootstrap draws are held. Downscaling loads the
+native factor grid and baseline and processes bounded target chunks. Parquet
+writes one year per row group. One CPU/task and BLAS thread limits avoid nested
+parallelism; start with a small pilot and tune memory, chunk size, fit walltime
+and array concurrency for real DCC measurements. Default 12-hour fit walltime
+is a starting allocation, not a measured guarantee. The default concurrency is
+per scenario, so nine fit arrays can run up to 72 tasks. Check DCC limits first.
+
+Logs go to persistent results_root/logs. Job TMPDIR uses scratch_root/jobs.
+Results and chunk checkpoints are published directly on persistent storage via
+atomic exclusive creation. A matching complete chunk is skipped; partial temp
+files are ignored. Source/settings/code/software changes invalidate matching
+outputs. Use a new versioned results_root rather than overwrite a stale run.
+Resubmitting the same workflow skips completed chunks. Failed dependencies can
+leave pending jobs: inspect/cancel those jobs before submitting a replacement
+workflow. No script deletes annual inputs or weekly checkpoints.
+
+After all jobs finish and quality review is recorded, archive persistent results:
+
+```bash
+python hpc/archive_wind.py --config "$WIND_CONFIG" \
+  --output "$HOME/CADENCE_Data/IM3/wind_results_reviewed.tar.gz"
+```
+
+Archive creation is exclusive and includes a SHA-256 manifest. It does not move
+or remove source results. Choose a new archive filename for each reviewed run.
+
+## Expected outputs and validation limits
+
+Under results_root:
+
+| Path | Contents |
+| --- | --- |
+| validation/SCENARIO.npz | JSON validation report and provenance for each of nine inputs |
+| fits/SCENARIO/CHUNK.npz | Parameters (c, location, scale), n_years, convergence, bootstrap successes, return levels, bounds, flags, AD/tail/top diagnostics |
+| factors/FUTURE_SLICE/CHUNK.npz | Eight native-grid factor products with bounds and propagated flags |
+| downscaled/FUTURE_SLICE/CHUNK.npz | CONUS baseline, future levels, conditional bounds, mapping distance, IDs, IDW sensitivity and flags |
+| annual/FORCING/CHUNK.parquet | Four full scientific products, 2026-2060, all six return periods |
+| compatibility/FORCING/rp_T/CHUNK.parquet | Optional explicitly reviewed wide CADENCE adapter |
+| logs/ | Slurm stdout/stderr, including validation reports and progress |
+
+Additional bit 2048 marks invalid optional baseline uncertainty bounds. Combined
+bounds are emitted only when both baseline bounds were supplied. NPZs retain
+all cells, even failures. Do not interpret a numerical factor as quality approval.
+
+Locally tested: synthetic schema errors, missing/count/unit handling, known
+Gumbel quantiles, failed/constant samples, bootstrap repeatability, ratio edge
+cases, coordinate mismatch, constant-field preservation, IDW sensitivity,
+transition anchors, Parquet round trips, exclusive publication, stale restart
+rejection, and a nine-scenario end-to-end run with restart invariance. Synthetic
+test fixtures use tiny grids and never enter Git. The automated end-to-end test
+disables bootstrap for speed; a separate CLI smoke run uses 25 replicates.
+
+Not executed locally: real 299x424 input validation, full-grid GEV fits,
+uncertainty calibration, temporal independence/stationarity checks, real CONUS
+mapping validation, DCC resource benchmarks, Slurm submission, or downstream
+CADENCE production integration. Tail diagnostics are descriptive screening;
+production review must inspect spatial flag maps, top-event sensitivity and
+return-level uncertainty before publication. No claim of scientific validation
+is made from synthetic checks.
+
+To reproduce the local synthetic CLI run in a new external directory:
+
+```bash
+python scripts/make_synthetic_pipeline.py /tmp/cadence-wind-example --bootstrap 25
+for stage in validate fit factor downscale export; do
+  python -m im3_wind.production "$stage" --config /tmp/cadence-wind-example/config.json
+done
+```
+
+The fixture maker refuses to replace an existing fixture. For reliable
+provenance run production from a clean committed checkout and retain the exact
+settings file, code revision, environment package list and upstream QA beside
+the reviewed archive. Only NumPy/SciPy versions are embedded automatically.
+
+A completeness and per-return-period bitmask report can be generated before
+archiving (output filename must be new):
+
+```bash
+python scripts/audit_wind_results.py --config "$WIND_CONFIG" \
+  --output "$HOME/CADENCE_Data/IM3/wind_quality_report.json"
+```
+
+Local execution record (2026-11-07): 12 tests passed; all five CLI stages ran
+for nine 2x2-grid synthetic inputs with 25 bootstrap replicates, producing four
+annual scenario products with 840 rows each (3,360 total). Completeness audit
+passed, Slurm command generation and shell syntax checks passed, and an archive
+of 68 synthetic output files was verified against every SHA-256 manifest entry.
+This used Python 3.14, NumPy 2.5.4 and SciPy 1.18.1 in an isolated temporary
+environment. DCC's rebuilt environment must run the same tests before deployment.

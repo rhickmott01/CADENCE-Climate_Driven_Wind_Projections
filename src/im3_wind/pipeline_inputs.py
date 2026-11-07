@@ -22,8 +22,25 @@ def fingerprint(path):
 
 def settings(path):
     cfg = json.loads(Path(path).read_text())
+    for key in ('chunk_cells', 'target_chunk_cells'):
+        value = cfg.get(key, 4096)
+        if not isinstance(value, int) or value < 1:
+            raise ValueError(f'{key} must be a positive integer')
+    if not 0 < cfg['min_coverage'] <= 1 or not 3 <= cfg['min_years'] <= 40:
+        raise ValueError('Invalid coverage/min_years')
+    if not isinstance(cfg['bootstrap'], int) or cfg['bootstrap'] < 0:
+        raise ValueError('bootstrap must be a nonnegative integer')
+    if len(cfg['grid_shape']) != 2 or any(not isinstance(v, int) or v < 1 for v in cfg['grid_shape']):
+        raise ValueError('grid_shape must contain two positive integers')
+    periods = np.asarray(cfg['return_periods'], dtype=float)
+    if periods.ndim != 1 or not len(periods) or not np.all(np.isfinite(periods) & (periods > 1)) or not np.all(np.diff(periods) > 0):
+        raise ValueError('return_periods must increase and exceed 1')
     cfg['settings_sha256'] = fingerprint(path)
     return cfg
+
+
+def grid_path(cfg, scenario):
+    return cfg.get('scenario_grid_files', {}).get(scenario) or cfg['grid_file']
 
 
 def coordinates(path, shape):
