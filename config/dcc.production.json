@@ -55,5 +55,13 @@
       "/work/rjh92/im3_tgw/raw/tgw_wrf_historical_three_hourly_1980-01-08_00_00_00.nc"
     ]
   },
-  "conus_upstream_quality_review": null
+  "conus_upstream_quality_review": null,
+  "conus_bounds_csv": "/hpc/home/rjh92/CADENCE-Climate_Driven_Wind_Projections/Data/raw/conus404/gev_return_periods.csv",
+  "future_evidence": {
+    "source_pipeline_config": "hpc/pipeline_config.json",
+    "staging_root": "/work/rjh92/im3_tgw/grid_evidence_sources",
+    "max_files": 8,
+    "max_bytes": 107374182400,
+    "wait_seconds": 7200
+  }
 }

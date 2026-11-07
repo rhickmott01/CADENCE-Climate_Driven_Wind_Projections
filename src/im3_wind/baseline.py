@@ -43,6 +43,37 @@ def inspect_table(path, cfg):
     if missing:
         raise ValueError(f'Unsupported baseline schema; missing {sorted(missing)}; available columns: {list(frame.columns)}')
     frame = frame.rename(columns={v:k for k,v in names.items()})
+    bounds_source = None
+    # The reviewed point-only Parquet can omit CIs that are still in the immutable CSV.
+    if layout == 'wide' and cfg.get('conus_bounds_csv'):
+        fields = [template.format(period=int(rp)) for rp in periods for template in (lower,upper)]
+        missing_bounds = [c for c in fields if c not in frame]
+        if missing_bounds:
+            source = Path(cfg['conus_bounds_csv'])
+            from .pipeline_inputs import fingerprint
+            expected = cfg.get('conus_raw_sha256')
+            if expected and fingerprint(source) != expected:
+                raise ValueError('CONUS bounds source checksum mismatch')
+            source_keys = [names[k] for k in base_keys]
+            gust_fields = [gust.format(period=int(rp)) for rp in periods]
+            header = pd.read_csv(source,nrows=0).columns
+            if not set(source_keys+missing_bounds+gust_fields).issubset(header):
+                raise ValueError('Configured raw bounds CSV lacks the requested gust-bound columns')
+            raw = pd.read_csv(source,usecols=source_keys+missing_bounds+gust_fields).rename(columns={v:k for k,v in names.items()})
+            if raw.duplicated(['lat_idx','lon_idx']).any():
+                raise ValueError('Duplicate raw bounds grid keys')
+            wanted = pd.MultiIndex.from_frame(frame[['lat_idx','lon_idx']])
+            raw = raw.set_index(['lat_idx','lon_idx']).reindex(wanted)
+            for coordinate in ('latitude','longitude'):
+                if not np.allclose(raw[coordinate].to_numpy(),frame[coordinate].to_numpy(),rtol=0,atol=1e-6):
+                    raise ValueError('Raw bounds coordinates do not match derived baseline')
+            for column in gust_fields:
+                if not np.allclose(raw[column].to_numpy(),frame[column].to_numpy(),rtol=1e-7,atol=1e-6,equal_nan=True):
+                    raise ValueError('Raw bounds point estimates do not match derived baseline')
+            for column in missing_bounds:
+                frame[column] = raw[column].to_numpy()
+            bounds_source = dict(path=str(source),sha256=fingerprint(source),join='exact lat_idx/lon_idx, checked geographic centers')
+            del raw
     for key in ('lat_idx', 'lon_idx'):
         values = frame[key].to_numpy()
         if not np.isfinite(values).all() or not np.equal(values, np.floor(values)).all() or (values < 0).any():
@@ -96,6 +127,7 @@ def inspect_table(path, cfg):
         flags |= NOT_CONVERGED  # unknown is not treated as proven convergence
     else:
         flags[~np.isfinite(convergence) | (convergence != 1)] |= NOT_CONVERGED
+    bounds_missing = np.ones(values.shape,dtype=bool) if lo is None or hi is None else ~np.isfinite(lo) | ~np.isfinite(hi)
     bounds_ok = np.zeros(values.shape, dtype=bool)
     if lo is not None and hi is not None:
         bounds_ok = np.isfinite(lo) & np.isfinite(hi) & (lo > 0) & (hi >= lo)
@@ -103,10 +135,23 @@ def inspect_table(path, cfg):
     if not cfg.get('conus_historical_period'):
         flags |= PERIOD_UNCONFIRMED
     upstream = {}
-    quality_columns = [c for c in frame.columns if 'flag' in c.lower() or 'quality' in c.lower()]
+    quality_columns = [c for c in frame.columns if 'flag' in c.lower() or 'quality' in c.lower() or c.startswith('qa_')]
+    recognized_qa = {'qa_nonmonotone','qa_nonpositive','qa_nonfinite','qa_invalid_coordinates','qa_negative_lower_bound','qa_point_estimates_usable'}
+    if layout == 'wide':
+        for column in set(quality_columns) & recognized_qa:
+            if not coords[column].isin([True,False,0,1]).all():
+                raise ValueError(f'{column} must contain explicit boolean values')
+        expected_qa = {'qa_nonmonotone':decreasing, 'qa_nonpositive':(np.isfinite(values) & (values<=0)).any(axis=1),
+                       'qa_nonfinite':(~np.isfinite(values)).any(axis=1), 'qa_invalid_coordinates':np.zeros(len(coords),dtype=bool),
+                       'qa_point_estimates_usable':~((flags & POINT_UNUSABLE)!=0).any(axis=1)}
+        if lo is not None:
+            expected_qa['qa_negative_lower_bound'] = (lo<0).any(axis=1)
+        for column, expected_values in expected_qa.items():
+            if column in coords and not np.array_equal(coords[column].to_numpy(dtype=bool),expected_values):
+                raise ValueError(f'Upstream {column} disagrees with recomputed source values')
     for column in quality_columns:
         if layout == 'wide':
-            upstream[column] = np.broadcast_to(coords[column].astype(str).to_numpy()[:,None],values.shape).copy()
+            upstream[column] = np.broadcast_to(coords[column].astype(str).to_numpy(dtype=str)[:,None],values.shape)
         else:
             upstream[column] = frame.pivot(index=['lat_idx','lon_idx'],columns=rp_col,values=column).reindex(index=index,columns=periods).astype(str).to_numpy()
     result = dict(source_quality_columns=upstream, latitude=lat.reshape(ny,nx), longitude=lon.reshape(ny,nx),
@@ -120,5 +165,8 @@ def inspect_table(path, cfg):
                   decreasing_cells=int(decreasing.sum()), invalid_point_estimates=int(((flags & POINT_INVALID)>0).sum()),
                   unusable_intervals=int((~bounds_ok).sum()),
                   upstream_quality_columns=quality_columns,
+                  unrecognized_quality_columns=[c for c in quality_columns if c not in recognized_qa],
+                  bounds_source=bounds_source, missing_intervals=int(bounds_missing.sum()),
+                  nonphysical_intervals=int((~bounds_missing & ~bounds_ok).sum()),
                   note='Source table preserved; flags recomputed from raw estimates/bounds. Unknown upstream flag meanings remain in source and must be reviewed.')
     return result, report

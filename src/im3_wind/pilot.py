@@ -114,7 +114,7 @@ def baseline_audit(cfg):
         try:
             _, facts = inspect_table(baseline,cfg)
             report.update(facts)
-            if facts['upstream_quality_columns'] and not cfg.get('conus_upstream_quality_review'):
+            if facts['unrecognized_quality_columns'] and not cfg.get('conus_upstream_quality_review'):
                 report['errors'].append('Upstream baseline quality-column meanings require conus_upstream_quality_review; original values are preserved')
         except Exception as exc:
             report['errors'].append(str(exc))
