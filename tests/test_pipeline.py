@@ -64,3 +64,27 @@ def test_bootstrap_reproducible():
     np.testing.assert_equal(a, b)
     assert a['bootstrap_success'][0] >= 20
     assert np.all(a['lower'] <= a['upper'])
+
+from im3_wind.factors import climate_factors, INVALID_RATIO
+
+
+def hazard(values):
+    v = np.array([values], dtype=float)
+    return dict(return_levels=v, lower=v*.9, upper=v*1.1,
+                flags=np.zeros(v.shape, dtype=np.uint16), cell_id=np.array([0]),
+                latitude=np.array([35.]), longitude=np.array([-80.]),
+                return_periods=np.array([10, 100]))
+
+
+def test_factors_preserve_bad_cells_and_coordinates():
+    h, f = hazard([20, 0]), hazard([24, 30])
+    h['flags'][0, 0] = EXTRAPOLATED
+    r = climate_factors(h, f)
+    assert r['factor'][0, 0] == 1.2
+    assert r['lower'][0, 0] < 1.2 < r['upper'][0, 0]
+    assert r['flags'][0, 0] & EXTRAPOLATED
+    assert np.isnan(r['factor'][0, 1])
+    assert r['flags'][0, 1] & INVALID_RATIO
+    f['longitude'][0] += .1
+    with pytest.raises(ValueError, match='mismatch'):
+        climate_factors(h, f)

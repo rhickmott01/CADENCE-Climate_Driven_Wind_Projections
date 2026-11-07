@@ -43,3 +43,16 @@ change after removing the largest observation. Flags are bitwise OR:
 shape, 64 top-observation sensitivity >25%, 128 nonpositive/nonfinite estimate.
 These thresholds are screening assumptions, not proof of validity. In particular
 all 50-500 year levels from 40 years are explicitly marked extrapolated.
+
+## Climate factors
+
+`factor` divides future by historical return levels for matching cell IDs,
+coordinates, and return periods; shape/grid fingerprint mismatches fail.
+Outputs retain all cells. NaN/zero/negative levels produce NaN factors and
+bit 256. Upstream flags propagate even when a numerical ratio exists. Bounds
+are future lower / historical upper and future upper / historical lower:
+a conservative marginal-interval envelope, **not** a calibrated 95% ratio CI.
+Historical/future dependence and climate-model uncertainty are not estimated.
+Arrays use `(cell, return_period)`; coordinates and cell IDs are 1-D native IM3
+row-major IDs. NPZ products contain JSON provenance with source hashes, settings
+hash, code commit and NumPy/SciPy versions. No pickle loading is needed.
